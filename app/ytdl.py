@@ -444,6 +444,90 @@ class DownloadQueue:
             await self.notifier.cleared(id)
         return {'status': 'ok'}
 
+    async def edit_metadata(self, id, metadata):
+        if not self.done.exists(id):
+            log.warn(f'requested metadata edit for non-existent download {id}')
+            return {'status': 'error', 'msg': 'Download not found'}
+        
+        dl = self.done.get(id)
+        try:
+            dldirectory, _ = self.__calc_download_path(dl.info.quality, dl.info.format, dl.info.folder)
+            filepath = os.path.join(dldirectory, dl.info.filename)
+            
+            if not os.path.exists(filepath):
+                return {'status': 'error', 'msg': 'File not found'}
+            
+            # Get file extension
+            _, ext = os.path.splitext(filepath)
+            if not ext:
+                return {'status': 'error', 'msg': 'Could not determine file format'}
+            
+            # Create a temporary file with a safe name
+            temp_file = os.path.join(os.path.dirname(filepath), f'temp_metadata_{int(time.time())}{ext}')
+            
+            # Add metadata parameters
+            metadata_args = []
+            for key, value in metadata.items():
+                if value:  # Only add non-empty metadata values
+                    metadata_args.extend(['-metadata', f'{key}={value}'])
+            
+            if not metadata_args:
+                return {'status': 'ok'}  # No metadata to update
+            
+            # Create FFmpeg command
+            cmd = ['ffmpeg', '-y', '-i', filepath]
+            cmd.extend(metadata_args)
+            cmd.extend(['-c', 'copy'])
+            
+            # Add format specification based on extension
+            if ext.lower() in ['.m4a', '.mp4', '.mov']:
+                cmd.extend(['-f', 'ipod'])  # Use ipod format for m4a/mp4 files
+            
+            cmd.append(temp_file)
+            
+            log.info(f"Running FFmpeg command: {' '.join(cmd)}")
+            
+            # Run FFmpeg command
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                log.error(f"FFmpeg error: {stderr.decode()}")
+                # Clean up temp file if it exists
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                return {'status': 'error', 'msg': f'FFmpeg error: {stderr.decode()}'}
+            
+            # Replace original file with new one
+            os.replace(temp_file, filepath)
+            
+            # Update info object with new metadata
+            for key, value in metadata.items():
+                if value:  # Only update non-empty metadata values
+                    setattr(dl.info, key, value)
+            
+            # Update persistent storage
+            self.done.put(dl)
+            
+            # Notify clients of the update
+            await self.notifier.updated(dl.info)
+            
+            return {'status': 'ok'}
+            
+        except Exception as e:
+            log.error(f'Error editing metadata for {id}: {str(e)}')
+            # Clean up temp file if it exists
+            if 'temp_file' in locals() and os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+            return {'status': 'error', 'msg': str(e)}
+
     def get(self):
         return (list((k, v.info) for k, v in self.queue.items()) +
                 list((k, v.info) for k, v in self.pending.items()),

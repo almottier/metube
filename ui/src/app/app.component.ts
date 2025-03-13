@@ -1,7 +1,7 @@
 import { Component, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { faTrashAlt, faCheckCircle, faTimesCircle, IconDefinition } from '@fortawesome/free-regular-svg-icons';
-import { faRedoAlt, faSun, faMoon, faCircleHalfStroke, faCheck, faExternalLinkAlt, faDownload } from '@fortawesome/free-solid-svg-icons';
+import { faRedoAlt, faSun, faMoon, faCircleHalfStroke, faCheck, faExternalLinkAlt, faDownload, faEdit } from '@fortawesome/free-solid-svg-icons';
 import { CookieService } from 'ngx-cookie-service';
 import { map, Observable, of } from 'rxjs';
 
@@ -9,7 +9,7 @@ import { Download, DownloadsService, Status } from './downloads.service';
 import { MasterCheckboxComponent } from './master-checkbox.component';
 import { Formats, Format, Quality } from './formats';
 import { Theme, Themes } from './theme';
-import {KeyValue} from "@angular/common";
+import { KeyValue } from "@angular/common";
 
 @Component({
   selector: 'app-root',
@@ -31,13 +31,22 @@ export class AppComponent implements AfterViewInit {
   themes: Theme[] = Themes;
   activeTheme: Theme;
   customDirs$: Observable<string[]>;
-  showBatchPanel: boolean = false; 
+  showBatchPanel: boolean = false;
   batchImportModalOpen = false;
   batchImportText = '';
   batchImportStatus = '';
   importInProgress = false;
   cancelImportFlag = false;
   versionInfo: string | null = null;
+  metadataModalOpen = false;
+  selectedDownload: Download | null = null;
+  metadataForm = {
+    title: '',
+    artist: '',
+    album: '',
+    year: '',
+    genre: ''
+  };
 
   @ViewChild('queueMasterCheckbox') queueMasterCheckbox: MasterCheckboxComponent;
   @ViewChild('queueDelSelected') queueDelSelected: ElementRef;
@@ -59,6 +68,7 @@ export class AppComponent implements AfterViewInit {
   faCircleHalfStroke = faCircleHalfStroke;
   faDownload = faDownload;
   faExternalLinkAlt = faExternalLinkAlt;
+  faEdit = faEdit;
 
   constructor(public downloads: DownloadsService, private cookieService: CookieService, private http: HttpClient) {
     this.format = cookieService.get('metube_format') || 'any';
@@ -77,7 +87,7 @@ export class AppComponent implements AfterViewInit {
 
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
       if (this.activeTheme.id === 'auto') {
-         this.setTheme(this.activeTheme);
+        this.setTheme(this.activeTheme);
       }
     });
   }
@@ -90,6 +100,7 @@ export class AppComponent implements AfterViewInit {
       this.doneMasterCheckbox.selectionChanged();
       let completed: number = 0, failed: number = 0;
       this.downloads.done.forEach(dl => {
+        console.log('Download status:', dl.status, 'Title:', dl.title);  // Debug log
         if (dl.status === 'finished')
           completed++;
         else if (dl.status === 'error')
@@ -126,10 +137,10 @@ export class AppComponent implements AfterViewInit {
   }
 
   isAudioType() {
-    return this.quality == 'audio' || this.format == 'mp3'  || this.format == 'm4a' || this.format == 'opus' || this.format == 'wav' || this.format == 'flac';
+    return this.quality == 'audio' || this.format == 'mp3' || this.format == 'm4a' || this.format == 'opus' || this.format == 'wav' || this.format == 'flac';
   }
 
-  getMatchingCustomDir() : Observable<string[]> {
+  getMatchingCustomDir(): Observable<string[]> {
     return this.downloads.customDirsChanged.asObservable().pipe(map((output) => {
       // Keep logic consistent with app/ytdl.py
       if (this.isAudioType()) {
@@ -216,7 +227,7 @@ export class AppComponent implements AfterViewInit {
     playlistItemLimit = playlistItemLimit ?? this.playlistItemLimit
     autoStart = autoStart ?? this.autoStart
 
-    console.debug('Downloading: url='+url+' quality='+quality+' format='+format+' folder='+folder+' customNamePrefix='+customNamePrefix+' playlistStrictMode='+playlistStrictMode+' playlistItemLimit='+playlistItemLimit+' autoStart='+autoStart);
+    console.debug('Downloading: url=' + url + ' quality=' + quality + ' format=' + format + ' folder=' + folder + ' customNamePrefix=' + customNamePrefix + ' playlistStrictMode=' + playlistStrictMode + ' playlistItemLimit=' + playlistItemLimit + ' autoStart=' + autoStart);
     this.addInProgress = true;
     this.downloads.add(url, quality, format, folder, customNamePrefix, playlistStrictMode, playlistItemLimit, autoStart).subscribe((status: Status) => {
       if (status.status === 'error') {
@@ -241,7 +252,7 @@ export class AppComponent implements AfterViewInit {
     this.downloads.delById(where, [id]).subscribe();
   }
 
-  startSelectedDownloads(where: string){
+  startSelectedDownloads(where: string) {
     this.downloads.startByFilter(where, dl => dl.checked).subscribe();
   }
 
@@ -434,7 +445,7 @@ export class AppComponent implements AfterViewInit {
   fetchVersionInfo(): void {
     const baseUrl = `${window.location.origin}${window.location.pathname.replace(/\/[^\/]*$/, '/')}`;
     const versionUrl = `${baseUrl}version`;
-    this.http.get<{ version: string}>(versionUrl)
+    this.http.get<{ version: string }>(versionUrl)
       .subscribe({
         next: (data) => {
           this.versionInfo = `yt-dlp version: ${data.version}`;
@@ -443,5 +454,44 @@ export class AppComponent implements AfterViewInit {
           this.versionInfo = '';
         }
       });
+  }
+
+  openMetadataModal(download: Download): void {
+    this.selectedDownload = download;
+    this.metadataForm = {
+      title: download.title || '',
+      artist: download.artist || '',
+      album: download.album || '',
+      year: download.year || '',
+      genre: download.genre || ''
+    };
+    this.metadataModalOpen = true;
+  }
+
+  closeMetadataModal(): void {
+    this.metadataModalOpen = false;
+    this.selectedDownload = null;
+  }
+
+  async saveMetadata(): Promise<void> {
+    if (!this.selectedDownload) return;
+
+    try {
+      const response = await this.http.post(`${window.location.origin}${window.location.pathname.replace(/\/[^\/]*$/, '/')}edit_metadata`, {
+        id: this.selectedDownload.url,
+        metadata: this.metadataForm
+      }).toPromise();
+
+      if (response['status'] === 'ok') {
+        this.closeMetadataModal();
+        // Refresh the downloads list
+        this.downloads.refresh();
+      } else {
+        alert(`Error updating metadata: ${response['msg']}`);
+      }
+    } catch (error) {
+      console.error('Error saving metadata:', error);
+      alert('Error saving metadata. Please try again.');
+    }
   }
 }

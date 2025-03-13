@@ -32,6 +32,8 @@ ENV UID=1000
 ENV GID=1000
 ENV UMASK=022
 
+ENV YTDL_OPTIONS='{"writethumbnail": true, "postprocessors": [{"key": "FFmpegMetadata", "add_metadata": "True"}, {"key": "EmbedThumbnail"}]}'
+
 ENV DOWNLOAD_DIR /downloads
 ENV STATE_DIR /downloads/.metube
 ENV TEMP_DIR /downloads

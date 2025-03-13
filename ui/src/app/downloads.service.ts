@@ -27,6 +27,10 @@ export interface Download {
   filename: string;
   checked?: boolean;
   deleting?: boolean;
+  artist?: string;
+  album?: string;
+  year?: string;
+  genre?: string;
 }
 
 @Injectable({
@@ -100,22 +104,22 @@ export class DownloadsService {
 
   handleHTTPError(error: HttpErrorResponse) {
     var msg = error.error instanceof ErrorEvent ? error.error.message : error.error;
-    return of({status: 'error', msg: msg})
+    return of({ status: 'error', msg: msg })
   }
 
   public add(url: string, quality: string, format: string, folder: string, customNamePrefix: string, playlistStrictMode: boolean, playlistItemLimit: number, autoStart: boolean) {
-    return this.http.post<Status>('add', {url: url, quality: quality, format: format, folder: folder, custom_name_prefix: customNamePrefix, playlist_strict_mode: playlistStrictMode, playlist_item_limit: playlistItemLimit, auto_start: autoStart}).pipe(
+    return this.http.post<Status>('add', { url: url, quality: quality, format: format, folder: folder, custom_name_prefix: customNamePrefix, playlist_strict_mode: playlistStrictMode, playlist_item_limit: playlistItemLimit, auto_start: autoStart }).pipe(
       catchError(this.handleHTTPError)
     );
   }
 
   public startById(ids: string[]) {
-    return this.http.post('start', {ids: ids});
+    return this.http.post('start', { ids: ids });
   }
 
   public delById(where: string, ids: string[]) {
     ids.forEach(id => this[where].get(id).deleting = true);
-    return this.http.post('delete', {where: where, ids: ids});
+    return this.http.post('delete', { where: where, ids: ids });
   }
 
   public startByFilter(where: string, filter: (dl: Download) => boolean) {
@@ -129,15 +133,20 @@ export class DownloadsService {
     this[where].forEach((dl: Download) => { if (filter(dl)) ids.push(dl.url) });
     return this.delById(where, ids);
   }
+
+  public refresh() {
+    this.socket.emit('refresh');
+  }
+
   public addDownloadByUrl(url: string): Promise<any> {
     const defaultQuality = 'best';
     const defaultFormat = 'mp4';
-    const defaultFolder = ''; 
+    const defaultFolder = '';
     const defaultCustomNamePrefix = '';
     const defaultPlaylistStrictMode = false;
     const defaultPlaylistItemLimit = 0;
     const defaultAutoStart = true;
-    
+
     return new Promise((resolve, reject) => {
       this.add(url, defaultQuality, defaultFormat, defaultFolder, defaultCustomNamePrefix, defaultPlaylistStrictMode, defaultPlaylistItemLimit, defaultAutoStart)
         .subscribe(
@@ -146,9 +155,8 @@ export class DownloadsService {
         );
     });
   }
+
   public exportQueueUrls(): string[] {
     return Array.from(this.queue.values()).map(download => download.url);
   }
-  
-  
 }

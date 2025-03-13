@@ -199,6 +199,11 @@ async def connect(sid, environ):
     if config.CUSTOM_DIRS:
         await sio.emit('custom_dirs', serializer.encode(get_custom_dirs()), to=sid)
 
+@sio.event
+async def refresh(sid):
+    log.info(f"Client requested refresh: {sid}")
+    await sio.emit('all', serializer.encode(dqueue.get()), to=sid)
+
 def get_custom_dirs():
     def recursive_dirs(base):
         path = pathlib.Path(base)
@@ -250,6 +255,18 @@ def robots(request):
 @routes.get(config.URL_PREFIX + 'version')
 def version(request):
     return web.json_response({"version": yt_dlp_version})
+
+@routes.post(config.URL_PREFIX + 'edit_metadata')
+async def edit_metadata(request):
+    post = await request.json()
+    id = post.get('id')
+    metadata = post.get('metadata')
+    if not id or not metadata:
+        log.error("Bad request: missing 'id' or 'metadata'")
+        raise web.HTTPBadRequest()
+    
+    status = await dqueue.edit_metadata(id, metadata)
+    return web.Response(text=serializer.encode(status))
 
 if config.URL_PREFIX != '/':
     @routes.get('/')
